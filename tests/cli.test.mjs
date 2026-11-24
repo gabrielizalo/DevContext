@@ -79,3 +79,28 @@ test('leaves no completed report after retrieval or conversion fails', async (t)
     assert.deepEqual(await readdir(cli.cwd), ['.env']);
   }
 });
+
+test('writes GitHub-only and mixed reports, using credentials only for requested services', async (t) => {
+  const githubUrl = 'https://github.com/example/widget/pull/2';
+  for (const mixed of [false, true]) {
+    const cli = await setup(t, {
+      env: `${mixed ? env : ''}GITHUB_TOKEN=synthetic-github-token\n`,
+      fetch: async (url, init) => {
+        if (new URL(url).hostname !== 'api.github.com') {
+          assert.equal(mixed, true);
+          return jiraResponse(url.pathname);
+        }
+        const { query } = JSON.parse(init.body);
+        const pullRequest = query.includes('query PullRequestDetails')
+          ? { title: 'Example PR', body: '', url: githubUrl, number: 2, repository: { nameWithOwner: 'example/widget' } }
+          : { items: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } };
+        return Response.json({ data: { repository: { pullRequest } } });
+      },
+    });
+    assert.equal(await cli.run(mixed ? [githubUrl, issueUrl, githubUrl] : [githubUrl]), 0);
+    const output = await readFile(join(cli.cwd, 'reports', 'DevContext-report-20261124-064215.md'), 'utf8');
+    assert.equal(output.match(/^## GitHub: example\/widget #2 — Example PR$/gm)?.length, mixed ? 2 : 1);
+    assert.equal(output.includes('## Jira:'), mixed);
+    if (mixed) assert.ok(output.indexOf('## Jira:') < output.indexOf('## GitHub:'));
+  }
+});

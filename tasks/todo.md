@@ -49,7 +49,7 @@ From Task 02 onward, run `pnpm run build`, `pnpm run typecheck`, `pnpm run lint`
 
 ## Task 06: Collect GitHub PRs and submitted reviews
 
-- [ ] Add GitHub URL routing and collection of PR metadata, general comments and submitted review bodies.
+- [x] Add GitHub URL routing and collection of PR metadata, general comments and submitted review bodies.
 - **Acceptance:** GitHub-only runs need no Jira credentials. Mixed runs include every resource in platform order. Traverse comment and review pages; omit blank or pending review bodies. Required GraphQL data errors fail the whole run. Inline conversations are added in Task 07.
 - **Verify:** `pnpm test tests/github.test.mjs tests/cli.test.mjs`; start the authorized private-PR credential check if possible.
 - **Depends on:** 05. **Scope (M):** GitHub collector, CLI and tests.

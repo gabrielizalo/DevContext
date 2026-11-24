@@ -2,14 +2,20 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs, parseEnv } from 'node:util';
+import { collectGitHubPullRequest } from './github.js';
 import { collectJiraIssue, jiraIssueToMarkdown } from './jira.js';
 import { publishReport, reportMetadata } from './report-file.js';
-import type { JiraIssue } from './report-model.js';
+import type { GitHubPullRequest, JiraIssue } from './report-model.js';
 import { renderDefaultReport } from './report.js';
 
-const help = 'Usage: devcontext <jira-url> [<jira-url> ...]\n\nOptions:\n  -h, --help   Show help';
+const help = 'Usage: devcontext <jira-url|github-pr-url> [...]\n\nOptions:\n  -h, --help   Show help';
 const tenantHost = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.atlassian\.net$/i;
 const jiraPath = /^\/browse\/([a-z][a-z0-9_]*-\d+)\/?$/i;
+const githubPath = /^\/([a-z\d](?:[a-z\d-]*[a-z\d])?)\/([a-z\d_.-]+)\/pull\/([1-9]\d*)\/?$/i;
+
+type Reference =
+  | { kind: 'jira'; hostname: string; issueKey: string }
+  | { kind: 'github'; owner: string; repository: string; number: number };
 
 interface CliOptions {
   readonly cwd?: string;
@@ -19,32 +25,35 @@ interface CliOptions {
   readonly stderr?: (line: string) => void;
 }
 
-function parseReference(input: string, index: number): { hostname: string; issueKey: string } {
+function parseReference(input: string, index: number): Reference {
   const raw = /^https:\/\/([^/?#]+)(\/[^?#]*)(?:[?#].*)?$/i.exec(input);
-  const issueKey = raw === null ? undefined : jiraPath.exec(raw[2])?.[1];
-  if (
-    raw !== null && issueKey !== undefined && !/[\s\\@]/.test(raw[1]) &&
-    /^(?:[a-z0-9.-]+)(?::443)?$/i.test(raw[1])
-  ) {
+  if (raw !== null && /^(?:[a-z0-9.-]+)(?::443)?$/i.test(raw[1])) {
     const hostname = raw[1].replace(/:443$/, '').toLowerCase();
-    if (tenantHost.test(hostname)) return { hostname, issueKey };
+    if (tenantHost.test(hostname)) {
+      const issueKey = jiraPath.exec(raw[2])?.[1];
+      if (issueKey !== undefined) return { kind: 'jira', hostname, issueKey };
+    } else if (hostname === 'github.com') {
+      const match = githubPath.exec(raw[2]);
+      if (match !== null && match[2] !== '.' && match[2] !== '..' && Number(match[3]) <= 2_147_483_647) {
+        return { kind: 'github', owner: match[1], repository: match[2], number: Number(match[3]) };
+      }
+    }
   }
-  throw new Error(`URL ${index + 1}: expected https://<tenant>.atlassian.net/browse/<ISSUE-KEY>.`);
+  throw new Error(`URL ${index + 1}: expected https://<tenant>.atlassian.net/browse/<ISSUE-KEY> or https://github.com/<owner>/<repo>/pull/<number>.`);
 }
 
-async function readCredentials(cwd: string): Promise<{ email: string; token: string }> {
-  let env: ReturnType<typeof parseEnv>;
+async function readEnv(cwd: string): Promise<ReturnType<typeof parseEnv>> {
   try {
-    env = parseEnv(await readFile(join(cwd, '.env'), 'utf8'));
+    return parseEnv(await readFile(join(cwd, '.env'), 'utf8'));
   } catch {
     throw new Error('Could not read .env. Create a readable .env in the current directory.');
   }
-  const email = env.JIRA_EMAIL;
-  const token = env.JIRA_API_TOKEN;
-  if (email === undefined || email.trim() === '' || token === undefined || token.trim() === '') {
-    throw new Error('Set JIRA_EMAIL and JIRA_API_TOKEN in .env for Jira URLs.');
-  }
-  return { email, token };
+}
+
+function credential(env: ReturnType<typeof parseEnv>, key: string): string {
+  const value = env[key];
+  if (value === undefined || value.trim() === '') throw new Error(`Set ${key} in .env for the requested URLs.`);
+  return value;
 }
 
 export async function runCli(args: readonly string[], options: CliOptions = {}): Promise<number> {
@@ -65,17 +74,30 @@ export async function runCli(args: readonly string[], options: CliOptions = {}):
       return 0;
     }
     if (argsResult.positionals.length === 0) {
-      throw new Error('Provide at least one Jira issue URL. Run devcontext --help for usage.');
+      throw new Error('Provide at least one Jira issue or GitHub pull request URL. Run devcontext --help for usage.');
     }
     const references = argsResult.positionals.map(parseReference);
-    const credentials = await readCredentials(cwd);
+    const env = await readEnv(cwd);
+    const jira = references.filter((reference) => reference.kind === 'jira');
+    const github = references.filter((reference) => reference.kind === 'github');
+    const jiraCredentials = jira.length === 0 ? undefined
+      : { email: credential(env, 'JIRA_EMAIL'), token: credential(env, 'JIRA_API_TOKEN') };
+    const githubToken = github.length === 0 ? undefined : credential(env, 'GITHUB_TOKEN');
     const issues: JiraIssue[] = [];
-    for (const reference of references) {
-      const issue = await collectJiraIssue(reference, credentials, options.fetch);
-      issues.push(jiraIssueToMarkdown(issue));
+    const pullRequests: GitHubPullRequest[] = [];
+    if (jiraCredentials !== undefined) {
+      for (const reference of jira) {
+        const issue = await collectJiraIssue(reference, jiraCredentials, options.fetch);
+        issues.push(jiraIssueToMarkdown(issue));
+      }
+    }
+    if (githubToken !== undefined) {
+      for (const reference of github) {
+        pullRequests.push(await collectGitHubPullRequest(reference, githubToken, options.fetch));
+      }
     }
     const report = reportMetadata(now());
-    const content = renderDefaultReport({ report, jira: { issues }, github: { pullRequests: [] } });
+    const content = renderDefaultReport({ report, jira: { issues }, github: { pullRequests } });
     let path: string;
     try {
       path = await publishReport(cwd, report, content, stderr);
