@@ -20,14 +20,14 @@ From Task 02 onward, run `pnpm run build`, `pnpm run typecheck`, `pnpm run lint`
 
 ## Task 03: Convert Jira ADF to Markdown
 
-- [ ] Convert fetched descriptions and comment bodies. Emit readable fallbacks for valid unsupported nodes; do not download binaries.
+- [x] Convert fetched descriptions and comment bodies. Emit readable fallbacks for valid unsupported nodes; do not download binaries.
 - **Acceptance:** Synthetic ADF preserves text and supported structures, including nested lists, tables and code. Unsupported media or nodes have visible fallbacks. Malformed ADF fails instead of being rendered as empty.
 - **Verify:** `pnpm test tests/adf.test.mjs tests/jira.test.mjs`.
 - **Depends on:** 02. **Scope (M):** ADF converter, Jira collector and tests.
 
 ### Checkpoint after Tasks 01–03
 
-- [ ] Build, typecheck, lint and all tests pass. Jira collection and conversion are verified with mocks; record the live check outcome or leave it pending.
+- [x] Build, typecheck, lint and all tests pass. Jira collection and conversion are verified with mocks; live credential verification is pending.
 
 ## Task 04: Render the default report
 

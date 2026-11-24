@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { adfToMarkdown } from './adf.js';
 import type { Comment, JiraIssue } from './report-model.js';
 
 interface JiraReference {
@@ -174,5 +175,24 @@ export async function collectJiraIssue(
     url: new URL(`/browse/${issue.key}`, origin).href,
     description,
     comments: await collectComments(fetcher, new URL(issue.key, base), `${context} comments`, authorization),
+  };
+}
+
+export function jiraIssueToMarkdown(issue: JiraAdfIssue): JiraIssue {
+  const convert = (body: AdfDocument, section: string): string => {
+    try {
+      return adfToMarkdown(body);
+    } catch (error) {
+      throw new Error(`Jira ${issue.id} ${section}: ADF conversion failed.`, { cause: error });
+    }
+  };
+  const description = issue.description === null ? '' : convert(issue.description, 'description');
+  return {
+    ...issue,
+    description: description === '' ? null : description,
+    comments: issue.comments.map((comment, index) => ({
+      ...comment,
+      body: convert(comment.body, `comment ${index + 1}`),
+    })),
   };
 }
