@@ -9,6 +9,7 @@
   "engines": {
     "node": "24.x"
   },
+  "files": ["dist/"],
   "bin": {
     "devcontext": "./dist/cli.js"
   },

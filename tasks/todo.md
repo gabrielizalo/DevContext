@@ -74,7 +74,7 @@ From Task 02 onward, run `pnpm run build`, `pnpm run typecheck`, `pnpm run lint`
 
 ## Task 09: Document and smoke-test local use
 
-- [ ] Document local installation, `.env`, CLI usage, template syntax, ADF limits, errors and safe handling of generated reports. Add a synthetic `.env.example` with no real values.
+- [x] Document local installation, `.env`, CLI usage, template syntax, ADF limits, errors and safe handling of generated reports. Add a synthetic `.env.example` with no real values.
 - **Acceptance:** Document only token configurations already verified; label pending checks explicitly. Local package exposes `devcontext`, requires no other CLI at runtime, and never includes local secrets or reports. Preserve the user's existing README work when adding instructions.
 - **Verify:** Run `pnpm run build`, `pnpm run typecheck`, `pnpm run lint`, and `pnpm test`. Run `pnpm pack` into a disposable directory, inspect the archive contents, then install it there to confirm `devcontext --help`; do not publish.
 - **Depends on:** 08. **Scope (M):** README, `.env.example` and package contents configuration if needed.
