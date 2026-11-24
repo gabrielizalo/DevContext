@@ -38,14 +38,14 @@ From Task 02 onward, run `pnpm run build`, `pnpm run typecheck`, `pnpm run lint`
 
 ## Task 05: Publish the first Jira report
 
-- [ ] Wire help, URL validation and Jira-only runs to `.env`, the collector, default renderer and local output. Ignore `reports/` before adding the writer.
+- [x] Wire help, URL validation and Jira-only runs to `.env`, the collector, default renderer and local output. Ignore `reports/` before adding the writer.
 - **Acceptance:** One or more Jira URLs, including repeats, produce one report with matching local metadata and filename. Validate all inputs before requests. No GitHub credentials are needed. Missing credentials, retrieval/conversion failures and publication errors produce no new completed file; same-second runs never overwrite.
-- **Verify:** `pnpm test tests/cli.test.mjs tests/report-file.test.mjs`; run `node dist/cli.js --help` without `.env`; run `git check-ignore .env reports/example.md`.
+- **Verify:** `pnpm test tests/cli.test.mjs tests/report-file.test.mjs`; run `node dist/cli.js --help` without `.env`; run `git check-ignore .env reports/DevContext-report-20261124-064215.md`. The already-tracked `reports/example.md` was left untouched.
 - **Depends on:** 02, 03, 04. **Scope (M):** CLI, report writer, two focused tests and `.gitignore`.
 
 ### Checkpoint after Tasks 04–05
 
-- [ ] Build, typecheck, lint and all tests pass. Review one synthetic Jira report and verify output behavior under a collision and an unsuccessful invocation.
+- [x] Build, typecheck, lint and all tests pass. A synthetic Jira report, collision handling, and failed invocations were verified.
 
 ## Task 06: Collect GitHub PRs and submitted reviews
 
