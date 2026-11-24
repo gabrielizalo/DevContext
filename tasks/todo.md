@@ -13,7 +13,7 @@ From Task 02 onward, run `pnpm run build`, `pnpm run typecheck`, `pnpm run lint`
 
 ## Task 02: Collect Jira issues and comments
 
-- [ ] Fetch issue fields and all visible comment pages from the documented Jira connection. Validate payloads and retain ADF for conversion.
+- [x] Fetch issue fields and all visible comment pages from the documented Jira connection. Validate payloads and retain ADF for conversion.
 - **Acceptance:** A mocked two-site case uses one credential set, validates tenant lookup and gateway destinations, and checks that authenticated reads reject redirects. Comment pagination preserves complete bodies and chronological order. Verified empty data is distinct from failed or stalled pages.
 - **Verify:** `pnpm test tests/jira.test.mjs`. Start the authorized Jira compatibility check if resources are available; never store tokens or real response bodies in fixtures.
 - **Depends on:** 01. **Scope (S):** Jira collector and tests.
