@@ -1,2 +1,2 @@
 # DevContext
-A lightweight CLI that collects Jira issues and GitHub pull request context, including unresolved review conversations, into structured Markdown reports.
+A lightweight, open-source CLI that collects context from Jira issues and GitHub pull requests into customizable Markdown reports, including unresolved review conversations.

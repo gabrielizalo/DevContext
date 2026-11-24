@@ -1,0 +1,26 @@
+{
+  "name": "devcontext",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Collect Jira issues and GitHub pull request context into local Markdown reports.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": "24.x"
+  },
+  "bin": {
+    "devcontext": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint .",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.8",
+    "@types/node": "24.10.0",
+    "typescript": "5.9.3"
+  }
+}
