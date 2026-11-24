@@ -104,3 +104,29 @@ test('writes GitHub-only and mixed reports, using credentials only for requested
     if (mixed) assert.ok(output.indexOf('## Jira:') < output.indexOf('## GitHub:'));
   }
 });
+
+test('does not publish a mixed report if an unresolved reply page fails', async (t) => {
+  const url = 'https://github.com/example/widget/pull/2';
+  const credentials = `${env}GITHUB_TOKEN=synthetic-github-token\n`;
+  const empty = { nodes: [], pageInfo: { hasNextPage: false } };
+  const cli = await setup(t, { env: credentials, fetch: async (target, init) => {
+    if (target.hostname !== 'api.github.com') return jiraResponse(target.pathname);
+    const { query, variables } = JSON.parse(init.body);
+    if (query.includes('query ThreadComments')) {
+      if (variables.after !== null) return Response.json({ errors: [{ message: 'Failed reply page' }] });
+      return Response.json({ data: { node: { items: {
+        nodes: [{ body: 'Initial comment', createdAt: '2026-11-24T09:00:00Z' }],
+        pageInfo: { hasNextPage: true, endCursor: 'next' },
+      } } } });
+    }
+    const pullRequest = query.includes('query PullRequestDetails')
+      ? { title: 'Example PR', body: '', url, number: 2, repository: { nameWithOwner: 'example/widget' } }
+      : { items: query.includes('query PullRequestThreads') ? {
+        ...empty, nodes: [{ id: 'thread', isResolved: false, isOutdated: false, path: 'src/example.ts' }],
+      } : empty };
+    return Response.json({ data: { repository: { pullRequest } } });
+  } });
+  assert.equal(await cli.run([issueUrl, url]), 1);
+  assert.match(cli.stderr[0], /GitHub example\/widget #2.*GraphQL/);
+  assert.deepEqual(await readdir(cli.cwd), ['.env']);
+});

@@ -56,14 +56,14 @@ From Task 02 onward, run `pnpm run build`, `pnpm run typecheck`, `pnpm run lint`
 
 ## Task 07: Include unresolved review threads
 
-- [ ] Collect review-thread pages and all reply pages for included threads. Render threads and replies alongside general comments and review bodies.
+- [x] Collect review-thread pages and all reply pages for included threads. Render threads and replies alongside general comments and review bodies.
 - **Acceptance:** Resolved threads never appear. Unresolved and outdated threads retain every reply and display available file, line, author, time and link metadata. No duplicate inline comments or invented line numbers. Failure fetching a required reply page prevents publication.
 - **Verify:** `pnpm test tests/github.test.mjs tests/report.test.mjs tests/cli.test.mjs`; finish the authorized private-PR check before claiming minimum token permissions.
 - **Depends on:** 06. **Scope (M):** GitHub collector, renderer and tests.
 
 ### Checkpoint after Tasks 06–07
 
-- [ ] Build, typecheck, lint and all tests pass. Review a mixed report that spans all four GitHub paginated connections. Confirm no completed report if one required source fails.
+- [x] Build, typecheck, lint and all tests pass. Mocked tests cover mixed reports, all four GitHub paginated connections, and no completed report if a required source fails.
 
 ## Task 08: Render custom templates
 

@@ -46,3 +46,17 @@ test('preserves raw Markdown bodies and shows available author, time and source'
   assert.ok(output.includes('https://example.invalid/comment'));
   assert.ok(output.includes(body));
 });
+
+test('labels outdated threads and identifies historical ranges without inventing current lines', () => {
+  const comment = { author: 'reviewer', createdAt: '2026-11-24T09:03:00Z', body: '**Check**' };
+  const output = renderDefaultReport(report([], [{
+    ...pullRequest,
+    conversations: [{
+      kind: 'thread', path: 'src/example.ts', outdated: true, originalStartLine: 17, originalLine: 19,
+      comments: [comment, { ...comment, author: 'pr-author', body: 'Reply' }],
+    }],
+  }]));
+  assert.match(output, /Inline thread \(outdated\): src\/example\.ts \(original lines 17–19\)/);
+  assert.match(output, /^##### Reply: pr-author/m);
+  assert.match(output, /\*\*Check\*\*/);
+});

@@ -4,8 +4,8 @@ export function descriptionMarkdown(description: string | null): string {
   return description === null || description.trim() === '' ? 'None' : description;
 }
 
-function commentMarkdown(comment: Comment, kind: string): string {
-  const header = `#### ${kind}: ${comment.author ?? 'Unknown author'} — ${comment.createdAt}`;
+function commentMarkdown(comment: Comment, kind: string, heading = '####'): string {
+  const header = `${heading} ${kind}: ${comment.author ?? 'Unknown author'} — ${comment.createdAt}`;
   const source = comment.url === undefined ? '' : `\n\nSource: ${comment.url}`;
   return `${header}${source}\n\n${comment.body}`;
 }
@@ -19,12 +19,25 @@ export function jiraCommentsMarkdown(issue: JiraIssue): string {
 function conversationMarkdown(conversation: GitHubConversation): string {
   if (conversation.kind === 'thread') {
     const [first, ...replies] = conversation.comments;
+    const { path, outdated, line, startLine, originalLine, originalStartLine } = conversation;
+    const lines = [
+      lineLabel(line, startLine, ''),
+      lineLabel(originalLine, originalStartLine, 'original '),
+    ].filter((label) => label !== '');
+    const location = lines.length === 0 ? path : `${path} (${lines.join('; ')})`;
     return [
-      commentMarkdown(first, 'Inline comment'),
-      ...replies.map((reply) => commentMarkdown(reply, 'Reply')),
+      `#### Inline thread${outdated ? ' (outdated)' : ''}: ${location}`,
+      commentMarkdown(first, 'Inline comment', '#####'),
+      ...replies.map((reply) => commentMarkdown(reply, 'Reply', '#####')),
     ].join('\n\n');
   }
   return commentMarkdown(conversation, conversation.kind === 'review' ? 'Review' : 'Comment');
+}
+
+function lineLabel(end: number | undefined, start: number | undefined, prefix: string): string {
+  if (end === undefined && start === undefined) return '';
+  if (start !== undefined && end !== undefined && start !== end) return `${prefix}lines ${start}–${end}`;
+  return `${prefix}line ${end ?? start}`;
 }
 
 export function githubCommentsMarkdown(pullRequest: GitHubPullRequest): string {

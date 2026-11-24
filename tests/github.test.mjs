@@ -25,6 +25,7 @@ test('collects every general comment and written submitted review across pages',
     if (query.includes('query PullRequestComments')) return Response.json(variables.after === null
       ? page([comment('first')], 'comments-2')
       : page([comment('last', { createdAt: '2026-11-25T09:00:00Z', author: null })]));
+    if (query.includes('query PullRequestThreads')) return Response.json(page([]));
     return Response.json(variables.after === null
       ? page([
         comment('   ', { state: 'APPROVED' }),
@@ -40,7 +41,40 @@ test('collects every general comment and written submitted review across pages',
     { kind: 'review', author: 'reader', body: ' **Review** ' },
     { kind: 'comment', author: null, body: 'last' },
   ]);
-  assert.deepEqual(requests, [null, null, 'comments-2', null, 'reviews-2']);
+  assert.deepEqual(requests, [null, null, 'comments-2', null, 'reviews-2', null]);
+});
+
+test('excludes resolved threads and collects every reply of outdated unresolved threads', async () => {
+  const fetched = [];
+  const fetch = async (_target, init) => {
+    const { query, variables } = JSON.parse(init.body);
+    if (query.includes('query PullRequestDetails')) return Response.json(details);
+    if (query.includes('query PullRequestComments')) return Response.json(page([comment('general')]));
+    if (query.includes('query PullRequestReviews')) return Response.json(page([comment('', { state: 'APPROVED' })]));
+    if (query.includes('query PullRequestThreads')) {
+      return Response.json(variables.after === null
+        ? page([{ id: 'resolved', isResolved: true }], 'threads-2')
+        : page([{
+          id: 'unresolved', isResolved: false, isOutdated: true, path: 'src/example.ts',
+          line: null, startLine: null, originalLine: 19, originalStartLine: 17,
+        }]));
+    }
+    fetched.push([variables.id, variables.after]);
+    const items = variables.after === null
+      ? { nodes: [comment('Please check')], pageInfo: { hasNextPage: true, endCursor: 'replies-2' } }
+      : { nodes: [comment('Author reply', { author: { login: 'pr-author' }, createdAt: '2026-11-25T09:00:00Z' })], pageInfo: { hasNextPage: false, endCursor: null } };
+    return Response.json({ data: { node: { items } } });
+  };
+  const result = await collectGitHubPullRequest(reference, token, fetch);
+  assert.deepEqual(fetched, [['unresolved', null], ['unresolved', 'replies-2']]);
+  assert.deepEqual(result.conversations.map((item) => item.kind), ['comment', 'thread']);
+  const thread = result.conversations[1];
+  assert.equal(thread.outdated, true);
+  assert.equal(thread.originalLine, 19);
+  assert.equal(thread.line, undefined);
+  assert.deepEqual(thread.comments.map(({ body, author }) => [body, author]), [
+    ['Please check', 'reader'], ['Author reply', 'pr-author'],
+  ]);
 });
 
 test('fails on GraphQL errors even when response status and some data look successful', async () => {

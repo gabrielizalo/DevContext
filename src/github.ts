@@ -20,6 +20,16 @@ const commentsQuery = `query PullRequestComments(${prVariables}, $after: String)
 const reviewsQuery = `query PullRequestReviews(${prVariables}, $after: String) {
   ${prField} { items: reviews(first: 50, after: $after) { nodes { ${commentFields} state } ${pageFields} } } }
 }`;
+const threadsQuery = `query PullRequestThreads(${prVariables}, $after: String) {
+  ${prField} { items: reviewThreads(first: 50, after: $after) {
+    nodes { id isResolved isOutdated path line startLine originalLine originalStartLine } ${pageFields}
+  } } }
+}`;
+const repliesQuery = `query ThreadComments($id: ID!, $after: String) {
+  node(id: $id) { ... on PullRequestReviewThread {
+    items: comments(first: 50, after: $after) { nodes { ${commentFields} } ${pageFields} }
+  } }
+}`;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -122,6 +132,41 @@ function githubQuery(fetcher: typeof fetch, token: string): Query {
   };
 }
 
+function lineNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function byCreation(a: Comment, b: Comment): number {
+  return Date.parse(a.createdAt) - Date.parse(b.createdAt);
+}
+
+async function collectThreads(query: Query, variables: Record<string, unknown>): Promise<GitHubConversation[]> {
+  const threads = await connection(async (after) =>
+    pullRequest(await query(threadsQuery, { ...variables, after })).items);
+  const included: GitHubConversation[] = [];
+  for (const thread of threads) {
+    if (thread.isResolved === true) continue;
+    if (
+      thread.isResolved !== false || typeof thread.isOutdated !== 'boolean' ||
+      typeof thread.id !== 'string' || thread.id === '' || typeof thread.path !== 'string' || thread.path === ''
+    ) throw new Error('Invalid GitHub review thread metadata.');
+    const id = thread.id;
+    const rawComments = await connection(async (after) => {
+      const { node } = await query(repliesQuery, { id, after });
+      return isRecord(node) ? node.items : undefined;
+    });
+    const [first, ...replies] = rawComments.map(parseComment).sort(byCreation);
+    if (first === undefined) throw new Error('An unresolved GitHub thread returned no comments.');
+    included.push({
+      kind: 'thread', path: thread.path, outdated: thread.isOutdated,
+      line: lineNumber(thread.line), startLine: lineNumber(thread.startLine),
+      originalLine: lineNumber(thread.originalLine), originalStartLine: lineNumber(thread.originalStartLine),
+      comments: [first, ...replies],
+    });
+  }
+  return included;
+}
+
 export async function collectGitHubPullRequest(
   reference: GitHubReference,
   token: string,
@@ -155,10 +200,11 @@ export async function collectGitHubPullRequest(
         conversations.push({ ...parseComment(review), kind: 'review' });
       }
     }
-    conversations.sort((a, b) => {
-      if (a.kind === 'thread' || b.kind === 'thread') return 0;
-      return Date.parse(a.createdAt) - Date.parse(b.createdAt);
-    });
+    for (const thread of await collectThreads(query, variables)) conversations.push(thread);
+    conversations.sort((a, b) => byCreation(
+      a.kind === 'thread' ? a.comments[0] : a,
+      b.kind === 'thread' ? b.comments[0] : b,
+    ));
     return { repository: raw.repository.nameWithOwner, number, title: raw.title, description: raw.body, url, conversations };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Collection failed.';
