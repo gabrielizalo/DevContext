@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { renderDefaultReport } from '../dist/report.js';
+import { compileTemplate, renderDefaultReport } from '../dist/report.js';
 
 const issue = {
   id: 'OPS-7', title: 'Título original', url: 'https://north.atlassian.net/browse/OPS-7',
@@ -59,4 +59,22 @@ test('labels outdated threads and identifies historical ranges without inventing
   assert.match(output, /Inline thread \(outdated\): src\/example\.ts \(original lines 17–19\)/);
   assert.match(output, /^##### Reply: pr-author/m);
   assert.match(output, /\*\*Check\*\*/);
+});
+
+test('renders repeated loops and empty collections without changing static or inserted text', () => {
+  const render = compileTemplate([
+    '## PRs\n{{#each github.pullRequests}}{{number}}{{/each}}\n',
+    '{{#each jira.issues}}{{ id }}: {{title}}\n{{/each}}',
+    '{{#each jira.issues}}{{report.date}}: {{description}}{{/each}}',
+  ].join(''), 'example.md');
+  const data = report([{ ...issue, description: '{{id}} <raw>' }]);
+  assert.equal(render(data), '## PRs\n\nOPS-7: Título original\n2026-11-24: {{id}} <raw>');
+});
+
+test('validates unknown fields in unused loops and rejects malformed or nested tags', () => {
+  assert.throws(() => compileTemplate('Heading\n{{#each jira.issues}}{{titlePrefix}}{{/each}}', 'example.md'),
+    /example\.md:2:\d+.*unknown.*titlePrefix/i);
+  for (const source of ['{{bad', '{{/each}}', '{{#each jira.issues}}', '{{#each jira.issues}}{{#each github.pullRequests}}{{/each}}{{/each}}']) {
+    assert.throws(() => compileTemplate(source, 'example.md'), /example\.md:1:\d+/);
+  }
 });

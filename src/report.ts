@@ -67,3 +67,94 @@ export function renderDefaultReport(data: ReportData): string {
   const sections = ['# Development Context', `Generated: ${date} ${time}`, ...jira, ...github];
   return `${sections.join('\n\n')}\n`;
 }
+
+type Collection = 'jira.issues' | 'github.pullRequests';
+type Values = {
+  readonly [field: string]: () => string;
+};
+type Part =
+  | { readonly kind: 'text'; readonly value: string }
+  | { readonly kind: 'field'; readonly name: string }
+  | { readonly kind: 'loop'; readonly collection: Collection; readonly body: Part[] };
+
+const fields: Record<Collection, readonly string[]> = {
+  'jira.issues': ['id', 'title', 'description', 'comments', 'url'],
+  'github.pullRequests': ['repository', 'number', 'title', 'description', 'comments', 'url'],
+};
+const metadataFields = ['report.date', 'report.time'];
+
+function jiraValues(issue: JiraIssue): Values {
+  return {
+    id: () => issue.id, title: () => issue.title, url: () => issue.url,
+    description: () => descriptionMarkdown(issue.description),
+    comments: () => jiraCommentsMarkdown(issue),
+  };
+}
+
+function githubValues(pr: GitHubPullRequest): Values {
+  return {
+    repository: () => pr.repository, number: () => String(pr.number), title: () => pr.title, url: () => pr.url,
+    description: () => descriptionMarkdown(pr.description),
+    comments: () => githubCommentsMarkdown(pr),
+  };
+}
+
+export function compileTemplate(source: string, path: string): (data: ReportData) => string {
+  const parts: Part[] = [];
+  let loop: Extract<Part, { kind: 'loop' }> | undefined;
+  let offset = 0;
+  let loopStart = 0;
+  const fail = (message: string, at: number): never => {
+    const preceding = source.slice(0, at).split('\n');
+    throw new Error(`${path}:${preceding.length}:${preceding[preceding.length - 1].length + 1}: ${message}`);
+  };
+  for (;;) {
+    const start = source.indexOf('{{', offset);
+    const target = loop?.body ?? parts;
+    if (start === -1) {
+      target.push({ kind: 'text', value: source.slice(offset) });
+      break;
+    }
+    target.push({ kind: 'text', value: source.slice(offset, start) });
+    const end = source.indexOf('}}', start + 2);
+    if (end === -1) fail('Unclosed template tag.', start);
+    const tag = source.slice(start + 2, end).trim();
+    if (tag === '/each') {
+      if (loop === undefined) fail('Unexpected {{/each}}.', start);
+      loop = undefined;
+    } else if (tag.startsWith('#')) {
+      if (loop !== undefined) fail('Nested loops are not supported.', start);
+      const collection = /^#each\s+(\S+)$/.exec(tag)?.[1];
+      if (collection === 'jira.issues' || collection === 'github.pullRequests') {
+        loop = { kind: 'loop', collection, body: [] };
+        parts.push(loop);
+        loopStart = start;
+      } else {
+        fail('Invalid loop; use {{#each jira.issues}} or {{#each github.pullRequests}}.', start);
+      }
+    } else {
+      if (!/^[a-zA-Z.]+$/.test(tag)) fail('Malformed template tag.', start);
+      if (!metadataFields.includes(tag) && (loop === undefined || !fields[loop.collection].includes(tag))) {
+        fail(`Unknown template field "${tag}".`, start);
+      }
+      target.push({ kind: 'field', name: tag });
+    }
+    offset = end + 2;
+  }
+  if (loop !== undefined) fail('Unclosed loop; add {{/each}}.', loopStart);
+
+  return (data) => {
+    const metadata: Values = { 'report.date': () => data.report.date, 'report.time': () => data.report.time };
+    function render(body: readonly Part[], values: Values): string {
+      return body.map((part) => {
+        if (part.kind === 'text') return part.value;
+        if (part.kind === 'field') return values[part.name]();
+        if (part.collection === 'jira.issues') {
+          return data.jira.issues.map((issue) => render(part.body, { ...metadata, ...jiraValues(issue) })).join('');
+        }
+        return data.github.pullRequests.map((pr) => render(part.body, { ...metadata, ...githubValues(pr) })).join('');
+      }).join('');
+    }
+    return render(parts, metadata);
+  };
+}

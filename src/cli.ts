@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { parseArgs, parseEnv } from 'node:util';
 import { collectGitHubPullRequest } from './github.js';
 import { collectJiraIssue, jiraIssueToMarkdown } from './jira.js';
 import { publishReport, reportMetadata } from './report-file.js';
 import type { GitHubPullRequest, JiraIssue } from './report-model.js';
-import { renderDefaultReport } from './report.js';
+import { compileTemplate, renderDefaultReport } from './report.js';
 
-const help = 'Usage: devcontext <jira-url|github-pr-url> [...]\n\nOptions:\n  -h, --help   Show help';
+const help = 'Usage: devcontext <jira-url|github-pr-url> [...] [--template <path>]\n\nOptions:\n  --template <path>   Use a local Markdown template\n  -h, --help          Show help';
+const argumentOptions = { help: { type: 'boolean', short: 'h' }, template: { type: 'string' } } as const;
 const tenantHost = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.atlassian\.net$/i;
 const jiraPath = /^\/browse\/([a-z][a-z0-9_]*-\d+)\/?$/i;
 const githubPath = /^\/([a-z\d](?:[a-z\d-]*[a-z\d])?)\/([a-z\d_.-]+)\/pull\/([1-9]\d*)\/?$/i;
@@ -59,12 +60,13 @@ function credential(env: ReturnType<typeof parseEnv>, key: string): string {
 export async function runCli(args: readonly string[], options: CliOptions = {}): Promise<number> {
   const { cwd = process.cwd(), now = () => new Date(), stdout = console.log, stderr = console.error } = options;
   try {
-    let argsResult: ReturnType<typeof parseArgs<{ options: { help: { type: 'boolean'; short: 'h' } }; allowPositionals: true }>>;
+    let argsResult: ReturnType<typeof parseArgs<{ options: typeof argumentOptions; allowPositionals: true; tokens: true }>>;
     try {
       argsResult = parseArgs({
         args: [...args],
-        options: { help: { type: 'boolean', short: 'h' } },
+        options: argumentOptions,
         allowPositionals: true,
+        tokens: true,
       });
     } catch {
       throw new Error('Invalid arguments. Run devcontext --help for usage.');
@@ -77,6 +79,21 @@ export async function runCli(args: readonly string[], options: CliOptions = {}):
       throw new Error('Provide at least one Jira issue or GitHub pull request URL. Run devcontext --help for usage.');
     }
     const references = argsResult.positionals.map(parseReference);
+    const templatePath = argsResult.values.template;
+    let render = renderDefaultReport;
+    if (templatePath !== undefined) {
+      if (templatePath.trim() === '' || argsResult.tokens.filter(
+        (token) => token.kind === 'option' && token.name === 'template',
+      ).length > 1) throw new Error('Provide exactly one path for --template.');
+      let source: string;
+      try {
+        const bytes = await readFile(resolve(cwd, templatePath));
+        source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+      } catch {
+        throw new Error(`Could not read Markdown template ${templatePath}. Check the path and UTF-8 encoding.`);
+      }
+      render = compileTemplate(source, templatePath);
+    }
     const env = await readEnv(cwd);
     const jira = references.filter((reference) => reference.kind === 'jira');
     const github = references.filter((reference) => reference.kind === 'github');
@@ -97,7 +114,7 @@ export async function runCli(args: readonly string[], options: CliOptions = {}):
       }
     }
     const report = reportMetadata(now());
-    const content = renderDefaultReport({ report, jira: { issues }, github: { pullRequests } });
+    const content = render({ report, jira: { issues }, github: { pullRequests } });
     let path: string;
     try {
       path = await publishReport(cwd, report, content, stderr);

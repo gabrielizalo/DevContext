@@ -67,7 +67,7 @@ From Task 02 onward, run `pnpm run build`, `pnpm run typecheck`, `pnpm run lint`
 
 ## Task 08: Render custom templates
 
-- [ ] Add `--template` and the approved placeholder and loop syntax. Use the same collection data as the default report.
+- [x] Add `--template` and the approved placeholder and loop syntax. Use the same collection data as the default report.
 - **Acceptance:** Repeated loops, zero iterations, static text and raw Markdown match the spec. Jira titles render unchanged. Invalid fields or syntax are reported with location before API calls, including inside empty loops. Inserted text is not reinterpreted.
 - **Verify:** `pnpm test tests/report.test.mjs tests/cli.test.mjs` with valid and invalid template fixtures.
 - **Depends on:** 04, 05, 07. **Scope (M):** renderer, CLI, tests and synthetic template fixture.

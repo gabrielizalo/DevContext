@@ -130,3 +130,21 @@ test('does not publish a mixed report if an unresolved reply page fails', async 
   assert.match(cli.stderr[0], /GitHub example\/widget #2.*GraphQL/);
   assert.deepEqual(await readdir(cli.cwd), ['.env']);
 });
+
+test('checks custom templates before network access and publishes valid custom output', async (t) => {
+  let requests = 0;
+  const cli = await setup(t, { env, fetch: async (url) => {
+    requests += 1;
+    return jiraResponse(url.pathname);
+  } });
+  const template = join(cli.cwd, 'custom.md');
+  await writeFile(template, 'Heading\n{{#each github.pullRequests}}{{unknown}}{{/each}}');
+  assert.equal(await cli.run([issueUrl, '--template', 'custom.md']), 1);
+  assert.equal(requests, 0);
+  assert.match(cli.stderr[0], /custom\.md:2:\d+/);
+  assert.deepEqual((await readdir(cli.cwd)).sort(), ['.env', 'custom.md']);
+  await writeFile(template, '## Custom\n{{#each jira.issues}}{{title}}{{/each}}\n');
+  assert.equal(await cli.run([issueUrl, '--template', 'custom.md']), 0);
+  const output = await readFile(join(cli.cwd, 'reports', 'DevContext-report-20261124-064215.md'), 'utf8');
+  assert.equal(output, '## Custom\nExample issue\n');
+});
