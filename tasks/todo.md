@@ -31,7 +31,7 @@ From Task 02 onward, run `pnpm run build`, `pnpm run typecheck`, `pnpm run lint`
 
 ## Task 04: Render the default report
 
-- [ ] Render the built-in Markdown report from normalized fixtures before wiring it into the CLI.
+- [x] Render the built-in Markdown report from normalized fixtures before wiring it into the CLI.
 - **Acceptance:** Golden cases cover Jira-only, GitHub-only, mixed inputs, order within each platform and verified empty sections. Preserve raw source bodies. Absent platforms render no sections.
 - **Verify:** `pnpm test tests/report.test.mjs tests/jira.test.mjs`.
 - **Depends on:** 01 (shared model). **Scope (S):** renderer and report tests.
