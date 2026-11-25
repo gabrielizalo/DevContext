@@ -17,9 +17,6 @@ const details = `query PullRequestDetails(${prVariables}) {
 const commentsQuery = `query PullRequestComments(${prVariables}, $after: String) {
   ${prField} { items: comments(first: 50, after: $after) { nodes { ${commentFields} } ${pageFields} } } }
 }`;
-const reviewsQuery = `query PullRequestReviews(${prVariables}, $after: String) {
-  ${prField} { items: reviews(first: 50, after: $after) { nodes { ${commentFields} state } ${pageFields} } } }
-}`;
 const threadsQuery = `query PullRequestThreads(${prVariables}, $after: String) {
   ${prField} { items: reviewThreads(first: 50, after: $after) {
     nodes { id isResolved isOutdated path line startLine originalLine originalStartLine } ${pageFields}
@@ -189,17 +186,7 @@ export async function collectGitHubPullRequest(
     }
     const commentNodes = await connection(async (after) =>
       pullRequest(await query(commentsQuery, { ...variables, after })).items);
-    const reviewNodes = await connection(async (after) =>
-      pullRequest(await query(reviewsQuery, { ...variables, after })).items);
     const conversations: GitHubConversation[] = commentNodes.map((node) => ({ ...parseComment(node), kind: 'comment' }));
-    for (const review of reviewNodes) {
-      if (typeof review.state !== 'string' || typeof review.body !== 'string') {
-        throw new Error('Invalid GitHub review state or body.');
-      }
-      if (review.state !== 'PENDING' && review.body.trim() !== '') {
-        conversations.push({ ...parseComment(review), kind: 'review' });
-      }
-    }
     for (const thread of await collectThreads(query, variables)) conversations.push(thread);
     conversations.sort((a, b) => byCreation(
       a.kind === 'thread' ? a.comments[0] : a,

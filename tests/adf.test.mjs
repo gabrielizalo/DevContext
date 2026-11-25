@@ -42,6 +42,15 @@ test('keeps mention text, media labels and text from unsupported nodes', () => {
   assert.equal(adfToMarkdown(body), '@Example\n\n[Media: Diagram]\n\n[Unsupported ADF: futureNode]\n\nPreserve this');
 });
 
+test('omits unsupported inline marks without losing text or supported marks', () => {
+  const body = document(paragraph(
+    text('Pink', [{ type: 'textColor', attrs: { color: '#ff00ff' } }, { type: 'strong' }]),
+    text(' and '),
+    text('readable', [{ type: 'futureMark' }]),
+  ));
+  assert.equal(adfToMarkdown(body), '**Pink** and readable');
+});
+
 test('rejects malformed nested nodes rather than discarding them', () => {
   assert.throws(() => adfToMarkdown(document(paragraph({ type: 'text' }))), /ADF.*text/i);
   assert.throws(() => adfToMarkdown({ type: 'doc', content: [] }), /ADF.*document/i);

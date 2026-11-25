@@ -14,6 +14,7 @@ Use one user-managed Jira credential set from `.env` across all authorized sites
 - Use one `JIRA_EMAIL` and one `JIRA_API_TOKEN`. For each supported `*.atlassian.net` tenant, use Atlassian's [documented cloud ID lookup](https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/) without credentials, then call `https://api.atlassian.com/ex/jira/{cloudId}`. Document the token configuration verified against this connection; do not claim support for tokens that require a different connection.
 - Convert ADF to Markdown: preserve paragraphs, headings, lists and nesting, tables, links, blockquotes, code blocks and conventional inline marks where representable. Preserve the original text of mentions when present. For media, attachments and unsupported nodes, include a readable labeled fallback, available human-readable text or safe source links, and any renderable child text. Do not fetch binaries or fabricate content. Malformed ADF is an error; valid but unsupported ADF is not.
 - Normalize absent optional author metadata to an explicit unknown author; preserve real timestamps. A verified null or semantically empty description and a successfully exhausted empty comments collection are empty states. An omitted expected field, bad response, or failed conversion is not empty.
+- Omit unsupported inline marks, such as text color, without adding placeholder labels. Preserve the underlying text and any supported marks. Keep readable fallbacks for unsupported nodes.
 
 ## Acceptance
 

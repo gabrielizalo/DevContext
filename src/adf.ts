@@ -77,8 +77,6 @@ function renderText(node: AdfNode): string {
       case 'link':
         result = link(result, isRecord(raw.attrs) ? raw.attrs.href : undefined);
         break;
-      default:
-        result = `${result} [Unsupported ADF mark: ${escapeText(raw.type)}]`;
     }
   }
   return result;

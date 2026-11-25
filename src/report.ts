@@ -4,19 +4,98 @@ export function descriptionMarkdown(description: string | null): string {
   return description === null || description.trim() === '' ? 'None' : description;
 }
 
-function commentMarkdown(comment: Comment, kind: string, heading = '####'): string {
+function commentMarkdown(comment: Comment, kind: string, heading = '####', nestHeadings = false): string {
   const header = `${heading} ${kind}: ${comment.author ?? 'Unknown author'} — ${comment.createdAt}`;
   const source = comment.url === undefined ? '' : `\n\nSource: ${comment.url}`;
-  return `${header}${source}\n\n${comment.body}`;
+  const body = nestHeadings ? lowerHeadings(comment.body, heading.length) : comment.body;
+  return `${header}${source}\n\n${body}`;
 }
 
-export function jiraCommentsMarkdown(issue: JiraIssue): string {
+function* proseLines(lines: readonly string[]): Generator<number> {
+  let fence: string | undefined;
+  for (let index = 0; index < lines.length; index += 2) {
+    const line = lines[index];
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence !== undefined) {
+      if (marker !== null && marker[1][0] === fence[0] &&
+        marker[1].length >= fence.length && marker[2].trim() === '') fence = undefined;
+      continue;
+    }
+    if (marker !== null && (marker[1][0] === '~' || !marker[2].includes('`'))) {
+      fence = marker[1];
+      continue;
+    }
+    yield index;
+  }
+}
+
+function lowerHeadings(body: string, levels: number): string {
+  const lines = body.split(/(\r?\n)/);
+  let previous = -2;
+  const hashes = (level: number) => '#'.repeat(Math.min(6, level + levels));
+  for (const index of proseLines(lines)) {
+    const line = lines[index];
+    const atx = /^( {0,3})(#{1,6})(?=[ \t]|$)(.*)$/.exec(line);
+    const underline = /^ {0,3}(=+|-+)[ \t]*$/.exec(line);
+    const title = lines[index - 2]?.trim();
+    if (atx !== null) {
+      lines[index] = `${atx[1]}${hashes(atx[2].length)}${atx[3]}`;
+    } else if (
+      underline !== null && previous === index - 2 && title !== undefined && title !== '' &&
+      !/^(?: {4}|\t| {0,3}(?:[#><*`~]|\[[^\]]+\]:|(?:[-+]|\d+[.)])(?:\s|$)))/.test(lines[index - 2])
+    ) {
+      // Setext titles ending in hashes need an escape in ATX form.
+      lines[index - 2] = `${hashes(underline[1][0] === '=' ? 1 : 2)} ${title.replace(/#+$/, (run) => `\\${run}`)}`;
+      lines[index] = '';
+      if (lines[index + 1] !== undefined) lines[index + 1] = '';
+    }
+    previous = index;
+  }
+  return lines.join('');
+}
+
+function expandDetails(body: string): string {
+  // Keep the original line endings and leave literal examples in fenced code intact.
+  const lines = body.split(/(\r?\n)/);
+  const blocks: { opening: number; summary?: number; label?: string }[] = [];
+  for (const index of proseLines(lines)) {
+    const line = lines[index];
+    if (/^ {0,3}<details(?:\s+open(?:=(?:"open"|'open'|open|""))?)?\s*>\s*$/i.test(line)) {
+      blocks.push({ opening: index });
+      continue;
+    }
+    const block = blocks.at(-1);
+    if (block === undefined) continue;
+    if (/^ {0,3}<\/details>\s*$/i.test(line)) {
+      blocks.pop();
+      lines[block.opening] = block.summary === undefined ? '**Details**' : '';
+      lines[index] = '';
+      if (block.summary !== undefined && block.label !== undefined) lines[block.summary] = block.label;
+      continue;
+    }
+    const summary = /^ {0,3}<summary>\s*(.*?)\s*<\/summary>\s*$/i.exec(line);
+    if (summary !== null && block.summary === undefined) {
+      const label = summary[1].replace(/^<(strong|b)>(.*?)<\/\1>$/i, '$2');
+      block.summary = index;
+      const newline = lines[index + 1] ?? '\n';
+      const needsBlankLine = (lines[index + 2]?.trim() ?? '') !== '';
+      block.label = `**${label || 'Details'}**${needsBlankLine ? newline : ''}`;
+    }
+  }
+  return lines.join('');
+}
+
+function githubCommentMarkdown(comment: Comment, kind: string, heading?: string, nestHeadings = false): string {
+  return commentMarkdown({ ...comment, body: expandDetails(comment.body) }, kind, heading, nestHeadings);
+}
+
+export function jiraCommentsMarkdown(issue: JiraIssue, nestHeadings = false): string {
   return issue.comments.length === 0
     ? 'None'
-    : issue.comments.map((comment) => commentMarkdown(comment, 'Comment')).join('\n\n');
+    : issue.comments.map((comment) => commentMarkdown(comment, 'Comment', '####', nestHeadings)).join('\n\n');
 }
 
-function conversationMarkdown(conversation: GitHubConversation): string {
+function conversationMarkdown(conversation: GitHubConversation, nestHeadings: boolean): string {
   if (conversation.kind === 'thread') {
     const [first, ...replies] = conversation.comments;
     const { path, outdated, line, startLine, originalLine, originalStartLine } = conversation;
@@ -27,11 +106,11 @@ function conversationMarkdown(conversation: GitHubConversation): string {
     const location = lines.length === 0 ? path : `${path} (${lines.join('; ')})`;
     return [
       `#### Inline thread${outdated ? ' (outdated)' : ''}: ${location}`,
-      commentMarkdown(first, 'Inline comment', '#####'),
-      ...replies.map((reply) => commentMarkdown(reply, 'Reply', '#####')),
+      githubCommentMarkdown(first, 'Inline comment', '#####', nestHeadings),
+      ...replies.map((reply) => githubCommentMarkdown(reply, 'Reply', '#####', nestHeadings)),
     ].join('\n\n');
   }
-  return commentMarkdown(conversation, conversation.kind === 'review' ? 'Review' : 'Comment');
+  return githubCommentMarkdown(conversation, 'Comment', '####', nestHeadings);
 }
 
 function lineLabel(end: number | undefined, start: number | undefined, prefix: string): string {
@@ -40,31 +119,35 @@ function lineLabel(end: number | undefined, start: number | undefined, prefix: s
   return `${prefix}line ${end ?? start}`;
 }
 
-export function githubCommentsMarkdown(pullRequest: GitHubPullRequest): string {
+export function githubCommentsMarkdown(pullRequest: GitHubPullRequest, nestHeadings = false): string {
   return pullRequest.conversations.length === 0
     ? 'None'
-    : pullRequest.conversations.map(conversationMarkdown).join('\n\n');
+    : pullRequest.conversations.map((item) => conversationMarkdown(item, nestHeadings)).join('\n\n');
 }
 
 export function renderDefaultReport(data: ReportData): string {
   const jira = data.jira.issues.map((issue) => [
-    `## Jira: ${issue.id} — ${issue.title}`,
+    `# Jira: ${issue.id}`,
+    `## ${issue.title}`,
     `Source: ${issue.url}`,
-    '### Description',
-    descriptionMarkdown(issue.description),
-    '### Comments',
-    jiraCommentsMarkdown(issue),
+    lowerHeadings(descriptionMarkdown(issue.description), 2),
+    '-----',
+    '# Jira Comments',
+    jiraCommentsMarkdown(issue, true),
   ].join('\n\n'));
   const github = data.github.pullRequests.map((pullRequest) => [
-    `## GitHub: ${pullRequest.repository} #${pullRequest.number} — ${pullRequest.title}`,
+    `# GitHub: ${pullRequest.repository} #${pullRequest.number}`,
+    `## ${pullRequest.title}`,
     `Source: ${pullRequest.url}`,
-    '### Description',
-    descriptionMarkdown(pullRequest.description),
-    '### Conversations',
-    githubCommentsMarkdown(pullRequest),
+    lowerHeadings(descriptionMarkdown(pullRequest.description), 2),
+    '-----',
+    '# GitHub Comments',
+    githubCommentsMarkdown(pullRequest, true),
   ].join('\n\n'));
   const { date, time } = data.report;
-  const sections = ['# Development Context', `Generated: ${date} ${time}`, ...jira, ...github];
+  const resources = [...jira, ...github];
+  const sections = ['# Development Context', `Generated: ${date} ${time}`];
+  if (resources.length > 0) sections.push(resources.join('\n\n-----\n\n'));
   return `${sections.join('\n\n')}\n`;
 }
 

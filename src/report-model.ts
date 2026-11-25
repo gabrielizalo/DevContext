@@ -14,7 +14,7 @@ export interface JiraIssue {
 }
 
 export type GitHubConversation =
-  | (Comment & { readonly kind: 'comment' | 'review' })
+  | (Comment & { readonly kind: 'comment' })
   | {
       readonly kind: 'thread';
       readonly path: string;

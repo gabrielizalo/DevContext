@@ -11,7 +11,7 @@ const pr = (pullRequest) => ({ data: { repository: { pullRequest } } });
 const page = (nodes, next = null) => pr({ items: { nodes, pageInfo: { hasNextPage: next !== null, endCursor: next } } });
 const details = pr({ title: 'Original PR', body: '**Markdown**', url, number: 2, repository: { nameWithOwner: 'example/widget' } });
 
-test('collects every general comment and written submitted review across pages', async () => {
+test('collects all general comments without fetching review-level summaries', async () => {
   const requests = [];
   const fetch = async (target, init) => {
     const { query, variables } = JSON.parse(init.body);
@@ -26,22 +26,16 @@ test('collects every general comment and written submitted review across pages',
       ? page([comment('first')], 'comments-2')
       : page([comment('last', { createdAt: '2026-11-25T09:00:00Z', author: null })]));
     if (query.includes('query PullRequestThreads')) return Response.json(page([]));
-    return Response.json(variables.after === null
-      ? page([
-        comment('   ', { state: 'APPROVED' }),
-        comment('draft', { state: 'PENDING' }),
-      ], 'reviews-2')
-      : page([comment(' **Review** ', { state: 'DISMISSED' })]));
+    return Response.json(page([comment('No open issues', { state: 'APPROVED' })]));
   };
   const result = await collectGitHubPullRequest(reference, token, fetch);
   assert.equal(result.description, '**Markdown**');
   assert.equal(result.url, url);
   assert.deepEqual(result.conversations.map(({ kind, author, body }) => ({ kind, author, body })), [
     { kind: 'comment', author: 'reader', body: 'first' },
-    { kind: 'review', author: 'reader', body: ' **Review** ' },
     { kind: 'comment', author: null, body: 'last' },
   ]);
-  assert.deepEqual(requests, [null, null, 'comments-2', null, 'reviews-2', null]);
+  assert.deepEqual(requests, [null, null, 'comments-2', null]);
 });
 
 test('excludes resolved threads and collects every reply of outdated unresolved threads', async () => {
@@ -50,7 +44,7 @@ test('excludes resolved threads and collects every reply of outdated unresolved 
     const { query, variables } = JSON.parse(init.body);
     if (query.includes('query PullRequestDetails')) return Response.json(details);
     if (query.includes('query PullRequestComments')) return Response.json(page([comment('general')]));
-    if (query.includes('query PullRequestReviews')) return Response.json(page([comment('', { state: 'APPROVED' })]));
+    if (query.includes('query PullRequestReviews')) return Response.json(page([comment('Stale summary', { state: 'APPROVED' })]));
     if (query.includes('query PullRequestThreads')) {
       return Response.json(variables.after === null
         ? page([{ id: 'resolved', isResolved: true }], 'threads-2')

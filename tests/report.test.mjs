@@ -16,8 +16,8 @@ const report = (issues = [], pullRequests = []) => ({
   github: { pullRequests },
 });
 const header = '# Development Context\n\nGenerated: 2026-11-24 06:42:15';
-const jiraSection = '## Jira: OPS-7 — Título original\n\nSource: https://north.atlassian.net/browse/OPS-7\n\n### Description\n\n**Texto**\n\n### Comments\n\nNone';
-const githubSection = '## GitHub: example/widget #2 — Original PR\n\nSource: https://github.com/example/widget/pull/2\n\n### Description\n\nNone\n\n### Conversations\n\nNone';
+const jiraSection = '# Jira: OPS-7\n\n## Título original\n\nSource: https://north.atlassian.net/browse/OPS-7\n\n**Texto**\n\n-----\n\n# Jira Comments\n\nNone';
+const githubSection = '# GitHub: example/widget #2\n\n## Original PR\n\nSource: https://github.com/example/widget/pull/2\n\nNone\n\n-----\n\n# GitHub Comments\n\nNone';
 
 test('renders Jira-only and GitHub-only reports without absent platform sections', () => {
   assert.equal(renderDefaultReport(report([issue])), `${header}\n\n${jiraSection}\n`);
@@ -29,12 +29,27 @@ test('renders Jira before GitHub while preserving each collection order', () => 
     [issue, { ...issue, id: 'OPS-1' }],
     [pullRequest, { ...pullRequest, number: 1 }],
   ));
-  assert.deepEqual(output.match(/^## (Jira|GitHub): .+$/gm), [
-    '## Jira: OPS-7 — Título original',
-    '## Jira: OPS-1 — Título original',
-    '## GitHub: example/widget #2 — Original PR',
-    '## GitHub: example/widget #1 — Original PR',
+  assert.deepEqual(output.match(/^# .+$/gm), [
+    '# Development Context',
+    '# Jira: OPS-7', '# Jira Comments',
+    '# Jira: OPS-1', '# Jira Comments',
+    '# GitHub: example/widget #2', '# GitHub Comments',
+    '# GitHub: example/widget #1', '# GitHub Comments',
   ]);
+  assert.ok(output.includes('\n\nNone\n\n-----\n\n# GitHub:'));
+});
+
+test('nests source headings in the default outline without changing custom output or fenced examples', () => {
+  const description = '# Overview\n\n## Scope\n\nExample\n=======\n\n```md\n# Literal\n```\n';
+  const data = report([], [{ ...pullRequest, description, conversations: [
+    { kind: 'comment', author: 'reader', createdAt: '2026-11-24T09:03:00Z', body: '# Comment heading' },
+  ] }]);
+  const output = renderDefaultReport(data);
+  assert.ok(output.includes('### Overview\n\n#### Scope\n\n### Example'));
+  assert.ok(output.includes('```md\n# Literal\n```'));
+  assert.match(output, /^##### Comment heading$/m);
+  const custom = compileTemplate('{{#each github.pullRequests}}{{description}}{{/each}}', 'example.md');
+  assert.equal(custom(data), description);
 });
 
 test('preserves raw Markdown bodies and shows available author, time and source', () => {
@@ -59,6 +74,20 @@ test('labels outdated threads and identifies historical ranges without inventing
   assert.match(output, /Inline thread \(outdated\): src\/example\.ts \(original lines 17–19\)/);
   assert.match(output, /^##### Reply: pr-author/m);
   assert.match(output, /\*\*Check\*\*/);
+});
+
+test('makes retained GitHub details readable in either template without changing fenced examples', () => {
+  const body = '<details open>\r\n<summary><strong>Context</strong></summary>\r\n\r\nKeep **this**.\r\n</details>\r\n\r\n```html\r\n<details open>\r\n<summary>Literal</summary>\r\n</details>\r\n```';
+  const data = report([], [{ ...pullRequest, conversations: [
+    { kind: 'comment', author: 'reader', createdAt: '2026-11-24T09:03:00Z', body },
+  ] }]);
+  const custom = compileTemplate('{{#each github.pullRequests}}{{comments}}{{/each}}', 'example.md');
+  for (const output of [renderDefaultReport(data), custom(data)]) {
+    assert.ok(output.includes('**Context**\r\n\r\nKeep **this**.'));
+    assert.ok(output.includes('```html\r\n<details open>\r\n<summary>Literal</summary>\r\n</details>\r\n```'));
+    assert.equal(output.match(/<details open>/g)?.length, 1);
+  }
+  assert.doesNotMatch(custom(data), /-----/);
 });
 
 test('renders repeated loops and empty collections without changing static or inserted text', () => {
