@@ -33,6 +33,22 @@ test('converts headings, marks, nested lists, tables and code without changing t
   ].join('\n\n'));
 });
 
+test('renders Jira checklist states, inline formatting and nested lists', () => {
+  const task = (state, ...content) => ({ ...node('taskItem', ...content), attrs: { localId: state, state } });
+  const list = (...content) => ({ ...node('taskList', ...content), attrs: { localId: 'checklist' } });
+  const body = document(list(
+    task('TODO', text('Check '), text('formatting', [{ type: 'strong' }]), { type: 'hardBreak' }, text('Follow up')),
+    list(task('DONE', text('Nested task'))),
+    task('DONE', text('Ship it')),
+  ));
+  assert.equal(adfToMarkdown(body), '- [ ] Check **formatting**  \n  Follow up\n  - [x] Nested task\n- [x] Ship it');
+});
+
+test('does not present a task with an unknown state as unchecked', () => {
+  const body = document({ ...node('taskItem', text('Unknown state')), attrs: { state: 'OTHER' } });
+  assert.throws(() => adfToMarkdown(body), /Malformed ADF task item state/);
+});
+
 test('keeps mention text, media labels and text from unsupported nodes', () => {
   const body = document(
     paragraph({ type: 'mention', attrs: { text: '@Example' } }),

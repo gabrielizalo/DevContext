@@ -86,6 +86,11 @@ function children(node: AdfNode, separator: string): string {
   return node.content.map((raw) => render(readNode(raw))).join(separator);
 }
 
+function indentListContinuation(body: string, width: number): string {
+  const indent = ' '.repeat(width);
+  return body.replace(/\n(?=[^\n])/g, `\n${indent}`);
+}
+
 function renderList(node: AdfNode): string {
   const start = node.attrs.order ?? 1;
   if (node.type === 'orderedList' && (typeof start !== 'number' || !Number.isSafeInteger(start) || start < 0)) {
@@ -95,12 +100,13 @@ function renderList(node: AdfNode): string {
     const item = readNode(raw);
     if (item.type !== 'listItem') throw new Error('Malformed ADF list item.');
     const marker = node.type === 'orderedList' && typeof start === 'number' ? `${start + index}. ` : '- ';
-    const lines = item.content.map((child, block) => {
+    const body = item.content.map((child, block) => {
       const nested = readNode(child);
-      const separator = block === 0 ? '' : nested.type === 'bulletList' || nested.type === 'orderedList' ? '\n' : '\n\n';
+      const isList = nested.type === 'bulletList' || nested.type === 'orderedList' || nested.type === 'taskList';
+      const separator = block === 0 ? '' : isList ? '\n' : '\n\n';
       return separator + render(nested);
-    }).join('').split('\n');
-    return lines.map((line, index) => index === 0 ? marker + line : line === '' ? '' : ' '.repeat(marker.length) + line).join('\n');
+    }).join('');
+    return marker + indentListContinuation(body, marker.length);
   }).join('\n');
 }
 
@@ -152,6 +158,18 @@ function render(node: AdfNode): string {
     case 'bulletList':
     case 'orderedList':
       return renderList(node);
+    case 'taskList':
+      return node.content.map((raw) => {
+        const item = readNode(raw);
+        const body = render(item);
+        return item.type === 'taskList' ? `  ${indentListContinuation(body, 2)}` : body;
+      }).join('\n');
+    case 'taskItem': {
+      const { state } = node.attrs;
+      if (state !== 'TODO' && state !== 'DONE') throw new Error('Malformed ADF task item state.');
+      const marker = state === 'DONE' ? '- [x]' : '- [ ]';
+      return `${marker} ${indentListContinuation(children(node, ''), 2)}`;
+    }
     case 'table':
       return renderTable(node);
     case 'codeBlock': {
