@@ -52,6 +52,28 @@ test('nests source headings in the default outline without changing custom outpu
   assert.equal(custom(data), description);
 });
 
+test('nests opted-in template descriptions and conversations under their parent headings', () => {
+  const description = '# Overview\n\n## Scope\n\n```md\n# Literal\n```';
+  const review = {
+    kind: 'review', author: 'reviewer', createdAt: '2026-11-24T09:03:00Z',
+    body: '# Review scope', url: `${pullRequest.url}#pullrequestreview-123`,
+  };
+  const data = report([{ ...issue, description }], [{ ...pullRequest, description, conversations: [review] }]);
+  const custom = compileTemplate([
+    '{{#each jira.issues}}### {{id}}\n\n{{description | nest 3}}\n{{/each}}',
+    '{{#each github.pullRequests}}### {{title}}\n\n{{description | nest 3}}\n\n',
+    '#### Reviews\n\n{{comments | nest 4}}{{/each}}',
+  ].join(''), 'example.md');
+  const output = custom(data);
+  assert.equal(output.match(/^#### Overview\n\n##### Scope\n\n```md\n# Literal\n```$/gm)?.length, 2);
+  assert.match(output, /^##### Review summary: reviewer/m);
+  assert.match(output, /^###### Review scope$/m);
+  assert.ok(output.includes(`Source: ${review.url}`));
+  assert.match(renderDefaultReport(data), /^#### Review summary: reviewer/m);
+  assert.throws(() => compileTemplate('{{#each jira.issues}}{{title | nest 3}}{{/each}}', 'example.md'),
+    /example\.md:1:\d+/);
+});
+
 test('preserves raw Markdown bodies and shows available author, time and source', () => {
   const body = '```text\n{{title}} <raw>\n```';
   const output = renderDefaultReport(report([{ ...issue, comments: [

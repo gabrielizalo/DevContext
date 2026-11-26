@@ -1,7 +1,8 @@
 import type { Comment, GitHubConversation, GitHubPullRequest, JiraIssue, ReportData } from './report-model.js';
 
-export function descriptionMarkdown(description: string | null): string {
-  return description === null || description.trim() === '' ? 'None' : description;
+export function descriptionMarkdown(description: string | null, nestUnder?: number): string {
+  if (description === null || description.trim() === '') return 'None';
+  return nestUnder === undefined ? description : lowerHeadings(description, nestUnder);
 }
 
 function commentMarkdown(comment: Comment, kind: string, heading = '####', nestHeadings = false): string {
@@ -29,10 +30,14 @@ function* proseLines(lines: readonly string[]): Generator<number> {
   }
 }
 
+function headingMarker(level: number): string {
+  return '#'.repeat(Math.min(6, level));
+}
+
 function lowerHeadings(body: string, levels: number): string {
   const lines = body.split(/(\r?\n)/);
   let previous = -2;
-  const hashes = (level: number) => '#'.repeat(Math.min(6, level + levels));
+  const hashes = (level: number) => headingMarker(level + levels);
   for (const index of proseLines(lines)) {
     const line = lines[index];
     const atx = /^( {0,3})(#{1,6})(?=[ \t]|$)(.*)$/.exec(line);
@@ -89,13 +94,15 @@ function githubCommentMarkdown(comment: Comment, kind: string, heading?: string,
   return commentMarkdown({ ...comment, body: expandDetails(comment.body) }, kind, heading, nestHeadings);
 }
 
-export function jiraCommentsMarkdown(issue: JiraIssue, nestHeadings = false): string {
+export function jiraCommentsMarkdown(issue: JiraIssue, nestHeadings = false, commentLevel = 4): string {
+  const heading = headingMarker(commentLevel);
   return issue.comments.length === 0
     ? 'None'
-    : issue.comments.map((comment) => commentMarkdown(comment, 'Comment', '####', nestHeadings)).join('\n\n');
+    : issue.comments.map((comment) => commentMarkdown(comment, 'Comment', heading, nestHeadings)).join('\n\n');
 }
 
-function conversationMarkdown(conversation: GitHubConversation, nestHeadings: boolean): string {
+function conversationMarkdown(conversation: GitHubConversation, nestHeadings: boolean, commentLevel: number): string {
+  const heading = headingMarker(commentLevel);
   if (conversation.kind === 'thread') {
     const [first, ...replies] = conversation.comments;
     const { path, outdated, line, startLine, originalLine, originalStartLine } = conversation;
@@ -104,13 +111,15 @@ function conversationMarkdown(conversation: GitHubConversation, nestHeadings: bo
       lineLabel(originalLine, originalStartLine, 'original '),
     ].filter((label) => label !== '');
     const location = lines.length === 0 ? path : `${path} (${lines.join('; ')})`;
+    const replyHeading = headingMarker(commentLevel + 1);
     return [
-      `#### Inline thread${outdated ? ' (outdated)' : ''}: ${location}`,
-      githubCommentMarkdown(first, 'Inline comment', '#####', nestHeadings),
-      ...replies.map((reply) => githubCommentMarkdown(reply, 'Reply', '#####', nestHeadings)),
+      `${heading} Inline thread${outdated ? ' (outdated)' : ''}: ${location}`,
+      githubCommentMarkdown(first, 'Inline comment', replyHeading, nestHeadings),
+      ...replies.map((reply) => githubCommentMarkdown(reply, 'Reply', replyHeading, nestHeadings)),
     ].join('\n\n');
   }
-  return githubCommentMarkdown(conversation, 'Comment', '####', nestHeadings);
+  const label = conversation.kind === 'review' ? 'Review summary' : 'Comment';
+  return githubCommentMarkdown(conversation, label, heading, nestHeadings);
 }
 
 function lineLabel(end: number | undefined, start: number | undefined, prefix: string): string {
@@ -119,10 +128,10 @@ function lineLabel(end: number | undefined, start: number | undefined, prefix: s
   return `${prefix}line ${end ?? start}`;
 }
 
-export function githubCommentsMarkdown(pullRequest: GitHubPullRequest, nestHeadings = false): string {
+export function githubCommentsMarkdown(pullRequest: GitHubPullRequest, nestHeadings = false, commentLevel = 4): string {
   return pullRequest.conversations.length === 0
     ? 'None'
-    : pullRequest.conversations.map((item) => conversationMarkdown(item, nestHeadings)).join('\n\n');
+    : pullRequest.conversations.map((item) => conversationMarkdown(item, nestHeadings, commentLevel)).join('\n\n');
 }
 
 export function renderDefaultReport(data: ReportData): string {
@@ -130,7 +139,7 @@ export function renderDefaultReport(data: ReportData): string {
     `# Jira: ${issue.id}`,
     `## ${issue.title}`,
     `Source: ${issue.url}`,
-    lowerHeadings(descriptionMarkdown(issue.description), 2),
+    descriptionMarkdown(issue.description, 2),
     '-----',
     '# Jira Comments',
     jiraCommentsMarkdown(issue, true),
@@ -139,7 +148,7 @@ export function renderDefaultReport(data: ReportData): string {
     `# GitHub: ${pullRequest.repository} #${pullRequest.number}`,
     `## ${pullRequest.title}`,
     `Source: ${pullRequest.url}`,
-    lowerHeadings(descriptionMarkdown(pullRequest.description), 2),
+    descriptionMarkdown(pullRequest.description, 2),
     '-----',
     '# GitHub Comments',
     githubCommentsMarkdown(pullRequest, true),
@@ -153,11 +162,11 @@ export function renderDefaultReport(data: ReportData): string {
 
 type Collection = 'jira.issues' | 'github.pullRequests';
 type Values = {
-  readonly [field: string]: () => string;
+  readonly [field: string]: (nestUnder?: number) => string;
 };
 type Part =
   | { readonly kind: 'text'; readonly value: string }
-  | { readonly kind: 'field'; readonly name: string }
+  | { readonly kind: 'field'; readonly name: string; readonly nestUnder?: number }
   | { readonly kind: 'loop'; readonly collection: Collection; readonly body: Part[] };
 
 const fields: Record<Collection, readonly string[]> = {
@@ -169,16 +178,16 @@ const metadataFields = ['report.date', 'report.time'];
 function jiraValues(issue: JiraIssue): Values {
   return {
     id: () => issue.id, title: () => issue.title, url: () => issue.url,
-    description: () => descriptionMarkdown(issue.description),
-    comments: () => jiraCommentsMarkdown(issue),
+    description: (nestUnder) => descriptionMarkdown(issue.description, nestUnder),
+    comments: (nestUnder) => nestUnder === undefined ? jiraCommentsMarkdown(issue) : jiraCommentsMarkdown(issue, true, nestUnder + 1),
   };
 }
 
 function githubValues(pr: GitHubPullRequest): Values {
   return {
     repository: () => pr.repository, number: () => String(pr.number), title: () => pr.title, url: () => pr.url,
-    description: () => descriptionMarkdown(pr.description),
-    comments: () => githubCommentsMarkdown(pr),
+    description: (nestUnder) => descriptionMarkdown(pr.description, nestUnder),
+    comments: (nestUnder) => nestUnder === undefined ? githubCommentsMarkdown(pr) : githubCommentsMarkdown(pr, true, nestUnder + 1),
   };
 }
 
@@ -216,11 +225,15 @@ export function compileTemplate(source: string, path: string): (data: ReportData
         fail('Invalid loop; use {{#each jira.issues}} or {{#each github.pullRequests}}.', start);
       }
     } else {
-      if (!/^[a-zA-Z.]+$/.test(tag)) fail('Malformed template tag.', start);
-      if (!metadataFields.includes(tag) && (loop === undefined || !fields[loop.collection].includes(tag))) {
-        fail(`Unknown template field "${tag}".`, start);
+      const field = /^([a-zA-Z.]+)(?:\s*\|\s*nest\s+([1-5]))?$/.exec(tag) ?? fail('Malformed template tag.', start);
+      const [, name, level] = field;
+      if (!metadataFields.includes(name) && (loop === undefined || !fields[loop.collection].includes(name))) {
+        fail(`Unknown template field "${name}".`, start);
       }
-      target.push({ kind: 'field', name: tag });
+      if (level !== undefined && name !== 'description' && name !== 'comments') {
+        fail('Heading nesting is only supported for description and comments.', start);
+      }
+      target.push({ kind: 'field', name, nestUnder: level === undefined ? undefined : Number(level) });
     }
     offset = end + 2;
   }
@@ -231,7 +244,7 @@ export function compileTemplate(source: string, path: string): (data: ReportData
     function render(body: readonly Part[], values: Values): string {
       return body.map((part) => {
         if (part.kind === 'text') return part.value;
-        if (part.kind === 'field') return values[part.name]();
+        if (part.kind === 'field') return values[part.name](part.nestUnder);
         if (part.collection === 'jira.issues') {
           return data.jira.issues.map((issue) => render(part.body, { ...metadata, ...jiraValues(issue) })).join('');
         }

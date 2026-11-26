@@ -11,7 +11,7 @@ const pr = (pullRequest) => ({ data: { repository: { pullRequest } } });
 const page = (nodes, next = null) => pr({ items: { nodes, pageInfo: { hasNextPage: next !== null, endCursor: next } } });
 const details = pr({ title: 'Original PR', body: '**Markdown**', url, number: 2, repository: { nameWithOwner: 'example/widget' } });
 
-test('collects all general comments without fetching review-level summaries', async () => {
+test('collects paginated comments and non-empty submitted review summaries in chronological order', async () => {
   const requests = [];
   const fetch = async (target, init) => {
     const { query, variables } = JSON.parse(init.body);
@@ -26,16 +26,27 @@ test('collects all general comments without fetching review-level summaries', as
       ? page([comment('first')], 'comments-2')
       : page([comment('last', { createdAt: '2026-11-25T09:00:00Z', author: null })]));
     if (query.includes('query PullRequestThreads')) return Response.json(page([]));
-    return Response.json(page([comment('No open issues', { state: 'APPROVED' })]));
+    assert.match(query, /query PullRequestReviews/);
+    return Response.json(variables.after === null
+      ? page([
+        { body: 'Pending draft', state: 'PENDING', submittedAt: null },
+        { body: '  \n', state: 'APPROVED', submittedAt: createdAt },
+      ], 'reviews-2')
+      : page([comment('Ready once feedback is addressed', {
+        state: 'COMMENTED', submittedAt: '2026-11-24T12:00:00Z', url: `${url}#pullrequestreview-123`,
+      })]));
   };
   const result = await collectGitHubPullRequest(reference, token, fetch);
   assert.equal(result.description, '**Markdown**');
   assert.equal(result.url, url);
   assert.deepEqual(result.conversations.map(({ kind, author, body }) => ({ kind, author, body })), [
     { kind: 'comment', author: 'reader', body: 'first' },
+    { kind: 'review', author: 'reader', body: 'Ready once feedback is addressed' },
     { kind: 'comment', author: null, body: 'last' },
   ]);
-  assert.deepEqual(requests, [null, null, 'comments-2', null]);
+  assert.equal(result.conversations[1].url, `${url}#pullrequestreview-123`);
+  assert.equal(result.conversations[1].createdAt, '2026-11-24T12:00:00Z');
+  assert.ok(requests.includes('reviews-2'));
 });
 
 test('excludes resolved threads and collects every reply of outdated unresolved threads', async () => {
@@ -44,7 +55,7 @@ test('excludes resolved threads and collects every reply of outdated unresolved 
     const { query, variables } = JSON.parse(init.body);
     if (query.includes('query PullRequestDetails')) return Response.json(details);
     if (query.includes('query PullRequestComments')) return Response.json(page([comment('general')]));
-    if (query.includes('query PullRequestReviews')) return Response.json(page([comment('Stale summary', { state: 'APPROVED' })]));
+    if (query.includes('query PullRequestReviews')) return Response.json(page([]));
     if (query.includes('query PullRequestThreads')) {
       return Response.json(variables.after === null
         ? page([{ id: 'resolved', isResolved: true }], 'threads-2')

@@ -17,6 +17,11 @@ const details = `query PullRequestDetails(${prVariables}) {
 const commentsQuery = `query PullRequestComments(${prVariables}, $after: String) {
   ${prField} { items: comments(first: 50, after: $after) { nodes { ${commentFields} } ${pageFields} } } }
 }`;
+const reviewsQuery = `query PullRequestReviews(${prVariables}, $after: String) {
+  ${prField} { items: reviews(first: 50, after: $after) {
+    nodes { author { login } submittedAt body url state } ${pageFields}
+  } } }
+}`;
 const threadsQuery = `query PullRequestThreads(${prVariables}, $after: String) {
   ${prField} { items: reviewThreads(first: 50, after: $after) {
     nodes { id isResolved isOutdated path line startLine originalLine originalStartLine } ${pageFields}
@@ -137,6 +142,17 @@ function byCreation(a: Comment, b: Comment): number {
   return Date.parse(a.createdAt) - Date.parse(b.createdAt);
 }
 
+async function collectReviews(query: Query, variables: Record<string, unknown>): Promise<GitHubConversation[]> {
+  const reviews = await connection(async (after) =>
+    pullRequest(await query(reviewsQuery, { ...variables, after })).items);
+  const summaries: GitHubConversation[] = [];
+  for (const review of reviews) {
+    if (review.state === 'PENDING' || (typeof review.body === 'string' && review.body.trim() === '')) continue;
+    summaries.push({ ...parseComment({ ...review, createdAt: review.submittedAt }), kind: 'review' });
+  }
+  return summaries;
+}
+
 async function collectThreads(query: Query, variables: Record<string, unknown>): Promise<GitHubConversation[]> {
   const threads = await connection(async (after) =>
     pullRequest(await query(threadsQuery, { ...variables, after })).items);
@@ -187,6 +203,7 @@ export async function collectGitHubPullRequest(
     const commentNodes = await connection(async (after) =>
       pullRequest(await query(commentsQuery, { ...variables, after })).items);
     const conversations: GitHubConversation[] = commentNodes.map((node) => ({ ...parseComment(node), kind: 'comment' }));
+    for (const review of await collectReviews(query, variables)) conversations.push(review);
     for (const thread of await collectThreads(query, variables)) conversations.push(thread);
     conversations.sort((a, b) => byCreation(
       a.kind === 'thread' ? a.comments[0] : a,
